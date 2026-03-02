@@ -18,7 +18,7 @@ st.markdown("""
     background-color: #F4F6F9;
 }
 [data-testid="stMetricValue"] {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: bold;
     color: #6C63FF;
 }
@@ -34,11 +34,48 @@ with open("rfm.pkl", "rb") as f:
 with open("rules.pkl", "rb") as f:
     rules = pickle.load(f)
 
-# If original dataset available for trend
+# Optional sales dataset
 try:
     df = pd.read_pickle("retail.pkl")
 except:
     df = None
+
+# ---------------- SAFE RFM PREPARATION ----------------
+rfm = rfm.copy()
+
+# If CustomerID is index → convert to column
+if rfm.index.name == "CustomerID":
+    rfm = rfm.reset_index()
+
+# Ensure required columns exist
+required_cols = ["Recency", "Frequency", "Monetary"]
+for col in required_cols:
+    if col not in rfm.columns:
+        st.error(f"Missing column in RFM data: {col}")
+        st.stop()
+
+# ---------------- CREATE SEGMENTS DYNAMICALLY ----------------
+rfm['R_Score'] = pd.qcut(rfm['Recency'], 4, labels=[4,3,2,1], duplicates='drop')
+rfm['F_Score'] = pd.qcut(rfm['Frequency'].rank(method='first'), 4, labels=[1,2,3,4], duplicates='drop')
+rfm['M_Score'] = pd.qcut(rfm['Monetary'], 4, labels=[1,2,3,4], duplicates='drop')
+
+rfm['RFM_Score'] = (
+    rfm['R_Score'].astype(str) +
+    rfm['F_Score'].astype(str) +
+    rfm['M_Score'].astype(str)
+)
+
+def segment_customer(score):
+    if score >= "444":
+        return "Champions"
+    elif score >= "344":
+        return "Loyal Customers"
+    elif score >= "244":
+        return "Potential Loyalists"
+    else:
+        return "At Risk"
+
+rfm['Segment'] = rfm['RFM_Score'].apply(segment_customer)
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("📌 Navigation")
@@ -66,15 +103,13 @@ Built using Python & Streamlit
 # ---------------- DASHBOARD ----------------
 if menu == "📊 Dashboard":
 
-    st.subheader("📈 Business Overview")
-
     col1, col2, col3 = st.columns(3)
 
     col1.metric("👥 Total Customers", rfm.shape[0])
     col2.metric("📦 Total Rules", rules.shape[0])
     col3.metric("💰 Avg Spend", round(rfm["Monetary"].mean(),2))
 
-    st.markdown("### 🏷 Customer Segment Distribution")
+    st.subheader("Customer Segment Distribution")
 
     segment_count = rfm["Segment"].value_counts()
 
@@ -85,18 +120,15 @@ if menu == "📊 Dashboard":
 # ---------------- SEGMENTATION ----------------
 elif menu == "👥 Segmentation":
 
-    st.subheader("Customer Segment Analysis")
+    st.subheader("Segment Wise Average Spend")
 
-    slider_value = st.slider("Minimum Monetary Value", 
+    slider_value = st.slider("Minimum Monetary Value",
                              int(rfm["Monetary"].min()),
                              int(rfm["Monetary"].max()),
                              100)
 
     filtered = rfm[rfm["Monetary"] >= slider_value]
-
     st.dataframe(filtered.head(20))
-
-    st.subheader("Segment Wise Average Spend")
 
     seg_avg = rfm.groupby("Segment")["Monetary"].mean()
     st.bar_chart(seg_avg)
@@ -106,27 +138,29 @@ elif menu == "🔍 Customer Lookup":
 
     st.subheader("Search Customer by ID")
 
-    customer_id = st.text_input("Enter Customer ID")
+    if "CustomerID" in rfm.columns:
+        customer_id = st.text_input("Enter Customer ID")
 
-    if customer_id:
-        cust = rfm[rfm["CustomerID"].astype(str) == customer_id]
+        if customer_id:
+            cust = rfm[rfm["CustomerID"].astype(str) == customer_id]
 
-        if not cust.empty:
-            col1, col2, col3 = st.columns(3)
+            if not cust.empty:
+                col1, col2, col3 = st.columns(3)
 
-            col1.metric("Recency", int(cust["Recency"].values[0]))
-            col2.metric("Frequency", int(cust["Frequency"].values[0]))
-            col3.metric("Monetary", round(cust["Monetary"].values[0],2))
+                col1.metric("Recency", int(cust["Recency"].values[0]))
+                col2.metric("Frequency", int(cust["Frequency"].values[0]))
+                col3.metric("Monetary", round(cust["Monetary"].values[0],2))
 
-            st.success(f"Segment: {cust['Segment'].values[0]}")
-        else:
-            st.error("Customer not found")
+                st.success(f"Segment: {cust['Segment'].values[0]}")
+            else:
+                st.error("Customer not found")
+    else:
+        st.warning("CustomerID column not available in dataset.")
 
 # ---------------- SALES TREND ----------------
 elif menu == "📈 Sales Trend":
 
     if df is not None:
-
         st.subheader("Monthly Sales Trend")
 
         df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
@@ -136,7 +170,6 @@ elif menu == "📈 Sales Trend":
         monthly_sales.index = monthly_sales.index.astype(str)
 
         st.line_chart(monthly_sales)
-
     else:
         st.warning("Sales dataset not found (retail.pkl missing)")
 
