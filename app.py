@@ -241,6 +241,3 @@ elif menu == "🛍 Market Basket Analysis":
     else:
         st.warning("No strong recommendation found.")
 
-# ---------------- FOOTER ----------------
-st.markdown("---")
-st.markdown("👩‍💻 Developed by Maha | Retail Analytics Project")
