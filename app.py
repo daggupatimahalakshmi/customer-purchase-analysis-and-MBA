@@ -15,28 +15,33 @@ st.markdown("""
     font-size: 26px;
     font-weight: bold;
 }
-.kpi1 {color:#FF4B4B;}
-.kpi2 {color:#1F77B4;}
-.kpi3 {color:#2CA02C;}
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🛒 Retail Analytics Dashboard")
 
-# ---------------- LOAD FILES ----------------
-rfm = pickle.load(open("rfm.pkl","rb"))
-rules = pickle.load(open("rules.pkl","rb"))
+# ---------------- LOAD PICKLE FILES ----------------
+with open("rfm.pkl", "rb") as f:
+    rfm = pickle.load(f)
+
+with open("rules.pkl", "rb") as f:
+    rules = pickle.load(f)
 
 rfm = rfm.copy()
 
-# Fix index issue
 if rfm.index.name == "CustomerID":
     rfm = rfm.reset_index()
 
-# ---------------- CREATE SEGMENTS ----------------
-rfm['R_Score'] = pd.qcut(rfm['Recency'], 4, labels=[4,3,2,1], duplicates='drop')
-rfm['F_Score'] = pd.qcut(rfm['Frequency'].rank(method='first'), 4, labels=[1,2,3,4], duplicates='drop')
-rfm['M_Score'] = pd.qcut(rfm['Monetary'], 4, labels=[1,2,3,4], duplicates='drop')
+# ---------------- CREATE RFM SEGMENTS ----------------
+rfm['R_Score'] = pd.qcut(rfm['Recency'], 4,
+                         labels=[4,3,2,1], duplicates='drop')
+
+rfm['F_Score'] = pd.qcut(
+    rfm['Frequency'].rank(method='first'),
+    4, labels=[1,2,3,4], duplicates='drop')
+
+rfm['M_Score'] = pd.qcut(rfm['Monetary'], 4,
+                         labels=[1,2,3,4], duplicates='drop')
 
 rfm['RFM_Score'] = (
     rfm['R_Score'].astype(str) +
@@ -57,64 +62,117 @@ def segment(x):
 rfm["Segment"] = rfm["RFM_Score"].apply(segment)
 
 # ---------------- SIDEBAR ----------------
-menu = st.sidebar.radio("Select Section",
-                        ["Customer Purchase Analysis",
-                         "Market Basket Analysis"])
+menu = st.sidebar.radio(
+    "📂 Navigation",
+    ["🏠 Home",
+     "📊 Customer Purchase Analysis",
+     "🛍 Market Basket Analysis"]
+)
 
 # ============================================================
-# 1️⃣ CUSTOMER PURCHASE ANALYSIS
+# 🏠 HOME – BUSINESS INSIGHTS
 # ============================================================
-if menu == "Customer Purchase Analysis":
+if menu == "🏠 Home":
+
+    st.header("📊 Executive Business Insights")
+
+    total_customers = rfm.shape[0]
+    total_revenue = round(rfm["Monetary"].sum(), 2)
+    avg_spend = round(rfm["Monetary"].mean(), 2)
+    champions = rfm[rfm["Segment"]=="Champions"].shape[0]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Customers", total_customers)
+    col2.metric("Total Revenue", total_revenue)
+    col3.metric("Average Spend", avg_spend)
+    col4.metric("Champions Customers", champions)
+
+    st.markdown("---")
+
+    st.subheader("📌 Customer Segment Distribution")
+    st.bar_chart(rfm["Segment"].value_counts())
+
+    st.markdown("---")
+
+    st.subheader("🛍 Strongest Product Association")
+
+    if not rules.empty:
+        top_rule = rules.sort_values("lift",
+                                     ascending=False).iloc[0]
+
+        st.success(f"""
+        If customers buy {list(top_rule['antecedents'])}
+        they are highly likely to buy {list(top_rule['consequents'])}
+
+        Lift: {round(top_rule['lift'],2)}
+        Confidence: {round(top_rule['confidence'],2)}
+        """)
+
+    st.markdown("---")
+
+    st.subheader("🚀 Strategic Recommendations")
+    st.markdown("""
+    ✔ Focus marketing on Champions segment  
+    ✔ Retarget At Risk customers with offers  
+    ✔ Bundle high-lift products together  
+    ✔ Use recommendations for cross-selling  
+    ✔ Improve loyalty rewards for repeat buyers  
+    """)
+
+# ============================================================
+# 📊 CUSTOMER PURCHASE ANALYSIS
+# ============================================================
+elif menu == "📊 Customer Purchase Analysis":
 
     st.header("📊 Customer Purchase Analysis")
 
-    # ---------------- KPI CARDS ----------------
     col1, col2, col3 = st.columns(3)
 
-    col1.markdown(f"<h3 class='kpi1'>Total Customers</h3>", unsafe_allow_html=True)
-    col1.metric("", rfm.shape[0])
+    col1.metric("Total Customers", rfm.shape[0])
+    col2.metric("Average Spend",
+                round(rfm["Monetary"].mean(),2))
+    col3.metric("High Value Customers",
+                rfm[rfm["Segment"]=="Champions"].shape[0])
 
-    col2.markdown(f"<h3 class='kpi2'>Average Spend</h3>", unsafe_allow_html=True)
-    col2.metric("", round(rfm["Monetary"].mean(),2))
-
-    col3.markdown(f"<h3 class='kpi3'>High Value Customers</h3>", unsafe_allow_html=True)
-    col3.metric("", rfm[rfm["Segment"]=="Champions"].shape[0])
-
-    # ---------------- PIE CHART ----------------
     st.subheader("Customer Segment Distribution")
 
     fig1, ax1 = plt.subplots()
-    rfm["Segment"].value_counts().plot.pie(autopct="%1.1f%%", ax=ax1)
+    rfm["Segment"].value_counts().plot.pie(
+        autopct="%1.1f%%", ax=ax1)
     st.pyplot(fig1)
 
-    # ---------------- SLIDER FILTER ----------------
     st.subheader("Filter by Minimum Monetary Value")
 
-    min_value = st.slider("Select Minimum Spend",
-                          int(rfm["Monetary"].min()),
-                          int(rfm["Monetary"].max()),
-                          100)
+    min_value = st.slider(
+        "Select Minimum Spend",
+        int(rfm["Monetary"].min()),
+        int(rfm["Monetary"].max()),
+        100
+    )
 
     filtered = rfm[rfm["Monetary"] >= min_value]
     st.dataframe(filtered.head(20))
 
-    # ---------------- BAR CHART ----------------
     st.subheader("Segment Wise Average Spend")
-
-    seg_avg = rfm.groupby("Segment")["Monetary"].mean()
-    st.bar_chart(seg_avg)
+    st.bar_chart(
+        rfm.groupby("Segment")["Monetary"].mean()
+    )
 
 # ============================================================
-# 2️⃣ MARKET BASKET ANALYSIS
+# 🛍 MARKET BASKET ANALYSIS
 # ============================================================
-elif menu == "Market Basket Analysis":
+elif menu == "🛍 Market Basket Analysis":
 
     st.header("🛍 Market Basket Analysis")
 
-    # ---------------- SLIDERS ----------------
-    min_support = st.slider("Minimum Support", 0.01, 0.5, 0.02)
-    min_conf = st.slider("Minimum Confidence", 0.1, 1.0, 0.3)
-    min_lift = st.slider("Minimum Lift", 0.5, 5.0, 1.0)
+    min_support = st.slider(
+        "Minimum Support", 0.01, 0.5, 0.02)
+
+    min_conf = st.slider(
+        "Minimum Confidence", 0.1, 1.0, 0.3)
+
+    min_lift = st.slider(
+        "Minimum Lift", 0.5, 5.0, 1.0)
 
     filtered_rules = rules[
         (rules["support"] >= min_support) &
@@ -124,12 +182,14 @@ elif menu == "Market Basket Analysis":
 
     st.subheader("All Association Rules")
     st.dataframe(filtered_rules[[
-        "antecedents","consequents",
-        "support","confidence","lift"
+        "antecedents",
+        "consequents",
+        "support",
+        "confidence",
+        "lift"
     ]])
 
-    # ---------------- VISUALIZATION ----------------
-    st.subheader("Support vs Confidence Chart")
+    st.subheader("Support vs Confidence")
 
     fig2, ax2 = plt.subplots()
     ax2.scatter(filtered_rules["support"],
@@ -138,7 +198,6 @@ elif menu == "Market Basket Analysis":
     ax2.set_ylabel("Confidence")
     st.pyplot(fig2)
 
-    # ---------------- RECOMMENDATION ----------------
     st.subheader("🎯 Product Recommendation")
 
     products = list(set(
@@ -148,29 +207,35 @@ elif menu == "Market Basket Analysis":
 
     selected = st.selectbox("Select Product", products)
 
-    rec = rules[rules["antecedents"].apply(lambda x: selected in x)]
+    rec = rules[
+        rules["antecedents"].apply(
+            lambda x: selected in x)
+    ]
 
     if not rec.empty:
 
-        best = rec.sort_values("lift", ascending=False).iloc[0]
+        best = rec.sort_values(
+            "lift",
+            ascending=False).iloc[0]
 
         col1, col2, col3 = st.columns(3)
 
-        col1.markdown("<h4 style='color:#FF4B4B'>Support</h4>", unsafe_allow_html=True)
-        col1.metric("", round(best["support"],3))
+        col1.metric("Support",
+                    round(best["support"],3))
+        col2.metric("Confidence",
+                    round(best["confidence"],3))
+        col3.metric("Lift",
+                    round(best["lift"],3))
 
-        col2.markdown("<h4 style='color:#1F77B4'>Confidence</h4>", unsafe_allow_html=True)
-        col2.metric("", round(best["confidence"],3))
+        st.success(
+            f"Recommended Product: {list(best['consequents'])}"
+        )
 
-        col3.markdown("<h4 style='color:#2CA02C'>Lift</h4>", unsafe_allow_html=True)
-        col3.metric("", round(best["lift"],3))
-
-        st.success(f"Recommended Product: {list(best['consequents'])}")
-
-        # Lift Visualization
         fig3, ax3 = plt.subplots()
         ax3.bar(["Support","Confidence","Lift"],
-                [best["support"], best["confidence"], best["lift"]])
+                [best["support"],
+                 best["confidence"],
+                 best["lift"]])
         st.pyplot(fig3)
 
     else:
