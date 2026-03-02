@@ -1,30 +1,23 @@
 import streamlit as st
-import pickle
 import pandas as pd
-import plotly.express as px
+import pickle
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="Customer Purchase Analytics",
+    page_title="Retail Analytics Dashboard",
     page_icon="📊",
     layout="wide"
 )
 
-# ---------------- CUSTOM CSS (Power BI Style) ----------------
+# ---------------- POWER BI STYLE ----------------
 st.markdown("""
 <style>
-.metric-card {
-    background-color: #ffffff;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 2px 2px 12px rgba(0,0,0,0.1);
-    text-align: center;
+[data-testid="stAppViewContainer"] {
+    background-color: #F4F6F9;
 }
-.metric-title {
-    font-size: 18px;
-    color: #555;
-}
-.metric-value {
+[data-testid="stMetricValue"] {
     font-size: 28px;
     font-weight: bold;
     color: #6C63FF;
@@ -32,8 +25,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Customer Purchase Pattern & Basket Analysis System")
-st.markdown("---")
+st.title("🛒 Customer Purchase Pattern & Basket Analysis System")
 
 # ---------------- LOAD DATA ----------------
 with open("rfm.pkl", "rb") as f:
@@ -42,131 +34,155 @@ with open("rfm.pkl", "rb") as f:
 with open("rules.pkl", "rb") as f:
     rules = pickle.load(f)
 
-# ---------------- CREATE SEGMENTS ----------------
-rfm['Segment'] = pd.qcut(rfm['Monetary'], 
-                         q=4, 
-                         labels=["Low Value", "Mid Value", "High Value", "Premium"])
+# If original dataset available for trend
+try:
+    df = pd.read_pickle("retail.pkl")
+except:
+    df = None
 
 # ---------------- SIDEBAR ----------------
-menu = st.sidebar.radio("📌 Navigation",
-                        ["📊 Dashboard",
-                         "👥 Customer Segmentation",
-                         "🛍 Market Basket Analysis",
-                         "🎯 Recommendation Engine"])
+st.sidebar.title("📌 Navigation")
 
-# ==================================================
-# 📊 DASHBOARD
-# ==================================================
+menu = st.sidebar.radio("Go to",
+                        ["📊 Dashboard",
+                         "👥 Segmentation",
+                         "🔍 Customer Lookup",
+                         "📈 Sales Trend",
+                         "💰 Profit Prediction",
+                         "🎯 Recommendation"])
+
+st.sidebar.markdown("## 📘 Project Description")
+st.sidebar.info("""
+• RFM Customer Segmentation  
+• Market Basket Analysis (Apriori)  
+• Association Rule Mining  
+• Product Recommendation Engine  
+• Sales Trend Analytics  
+• Machine Learning Profit Prediction  
+
+Built using Python & Streamlit
+""")
+
+# ---------------- DASHBOARD ----------------
 if menu == "📊 Dashboard":
+
+    st.subheader("📈 Business Overview")
 
     col1, col2, col3 = st.columns(3)
 
-    col1.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">Total Customers</div>
-        <div class="metric-value">{rfm.shape[0]}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    col1.metric("👥 Total Customers", rfm.shape[0])
+    col2.metric("📦 Total Rules", rules.shape[0])
+    col3.metric("💰 Avg Spend", round(rfm["Monetary"].mean(),2))
 
-    col2.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">Total Rules</div>
-        <div class="metric-value">{rules.shape[0]}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("### 🏷 Customer Segment Distribution")
 
-    col3.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">Avg Spend</div>
-        <div class="metric-value">₹ {round(rfm['Monetary'].mean(),2)}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    segment_count = rfm["Segment"].value_counts()
 
-    st.markdown("---")
+    fig, ax = plt.subplots()
+    ax.pie(segment_count, labels=segment_count.index, autopct="%1.1f%%")
+    st.pyplot(fig)
 
-    st.subheader("📌 Key Insights")
-    st.info("""
-    - Top customers contribute significant revenue.
-    - RFM used to segment customers by spending behavior.
-    - Association rules generated using Apriori algorithm.
-    - Recommendation engine built using Lift metric.
-    """)
+# ---------------- SEGMENTATION ----------------
+elif menu == "👥 Segmentation":
 
-# ==================================================
-# 👥 CUSTOMER SEGMENTATION
-# ==================================================
-elif menu == "👥 Customer Segmentation":
+    st.subheader("Customer Segment Analysis")
 
-    st.subheader("Customer Segment Distribution")
+    slider_value = st.slider("Minimum Monetary Value", 
+                             int(rfm["Monetary"].min()),
+                             int(rfm["Monetary"].max()),
+                             100)
 
-    segment_counts = rfm['Segment'].value_counts().reset_index()
-    segment_counts.columns = ['Segment', 'Count']
+    filtered = rfm[rfm["Monetary"] >= slider_value]
 
-    fig = px.pie(segment_counts,
-                 names='Segment',
-                 values='Count',
-                 title="Customer Segments",
-                 color_discrete_sequence=px.colors.sequential.Purples)
+    st.dataframe(filtered.head(20))
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Segment Wise Average Spend")
 
-    st.subheader("Top 10 Premium Customers")
-    premium = rfm[rfm['Segment'] == "Premium"]\
-        .sort_values("Monetary", ascending=False)\
-        .head(10)
+    seg_avg = rfm.groupby("Segment")["Monetary"].mean()
+    st.bar_chart(seg_avg)
 
-    st.dataframe(premium)
+# ---------------- CUSTOMER LOOKUP ----------------
+elif menu == "🔍 Customer Lookup":
 
-# ==================================================
-# 🛍 MARKET BASKET ANALYSIS
-# ==================================================
-elif menu == "🛍 Market Basket Analysis":
+    st.subheader("Search Customer by ID")
 
-    st.subheader("Association Rules")
+    customer_id = st.text_input("Enter Customer ID")
 
-    min_lift = st.slider("Select Minimum Lift", 
-                         float(rules['lift'].min()), 
-                         float(rules['lift'].max()), 
-                         1.0)
+    if customer_id:
+        cust = rfm[rfm["CustomerID"].astype(str) == customer_id]
 
-    filtered = rules[rules['lift'] >= min_lift]
+        if not cust.empty:
+            col1, col2, col3 = st.columns(3)
 
-    st.dataframe(filtered[['antecedents',
-                           'consequents',
-                           'support',
-                           'confidence',
-                           'lift']].sort_values(by="lift", ascending=False).head(10))
+            col1.metric("Recency", int(cust["Recency"].values[0]))
+            col2.metric("Frequency", int(cust["Frequency"].values[0]))
+            col3.metric("Monetary", round(cust["Monetary"].values[0],2))
 
-    st.subheader("Lift vs Confidence")
+            st.success(f"Segment: {cust['Segment'].values[0]}")
+        else:
+            st.error("Customer not found")
 
-    fig = px.scatter(filtered,
-                     x="lift",
-                     y="confidence",
-                     size="support",
-                     title="Lift vs Confidence",
-                     color="lift",
-                     color_continuous_scale="purples")
+# ---------------- SALES TREND ----------------
+elif menu == "📈 Sales Trend":
 
-    st.plotly_chart(fig, use_container_width=True)
+    if df is not None:
 
-# ==================================================
-# 🎯 RECOMMENDATION ENGINE
-# ==================================================
-elif menu == "🎯 Recommendation Engine":
+        st.subheader("Monthly Sales Trend")
 
-    st.subheader("Product Recommendation System")
+        df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+        df['Month'] = df['InvoiceDate'].dt.to_period('M')
+
+        monthly_sales = df.groupby('Month')['TotalPrice'].sum()
+        monthly_sales.index = monthly_sales.index.astype(str)
+
+        st.line_chart(monthly_sales)
+
+    else:
+        st.warning("Sales dataset not found (retail.pkl missing)")
+
+# ---------------- PROFIT PREDICTION ----------------
+elif menu == "💰 Profit Prediction":
+
+    st.subheader("Profit Prediction Model")
+
+    X = rfm[['Recency','Frequency']]
+    y = rfm['Monetary']
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    rec = st.slider("Recency", 1, 365, 30)
+    freq = st.slider("Frequency", 1, 100, 5)
+
+    prediction = model.predict([[rec, freq]])
+
+    st.success(f"Predicted Customer Profit: ₹ {round(prediction[0],2)}")
+
+# ---------------- RECOMMENDATION ----------------
+elif menu == "🎯 Recommendation":
+
+    st.subheader("Product Recommendation Engine")
 
     products = list(set([item for sublist in rules['antecedents'] for item in sublist]))
-    selected = st.selectbox("Select Product", products)
+    selected = st.selectbox("Select a Product", products)
 
     rec = rules[rules['antecedents'].apply(lambda x: selected in x)]
 
     if not rec.empty:
-        st.success("Recommended Products:")
-        st.dataframe(rec[['consequents',
-                          'confidence',
-                          'lift']]
-                     .sort_values(by='lift', ascending=False)
-                     .head(5))
+
+        best = rec.sort_values("lift", ascending=False).iloc[0]
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Support", round(best["support"],3))
+        col2.metric("Confidence", round(best["confidence"],3))
+        col3.metric("Lift", round(best["lift"],3))
+
+        st.success(f"Recommended Product: {list(best['consequents'])}")
+
     else:
         st.warning("No strong recommendation found.")
+
+# ---------------- FOOTER ----------------
+st.markdown("---")
+st.markdown("👩‍💻 Developed by Maha | Retail Analytics Project")
