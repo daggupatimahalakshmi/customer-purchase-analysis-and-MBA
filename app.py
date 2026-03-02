@@ -5,56 +5,35 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 
 # ---------------- PAGE CONFIG ----------------
-st.set_page_config(
-    page_title="Retail Analytics Dashboard",
-    page_icon="📊",
-    layout="wide"
-)
+st.set_page_config(page_title="Retail Analytics System",
+                   layout="wide")
 
-# ---------------- POWER BI STYLE ----------------
+# ---------------- STYLE ----------------
 st.markdown("""
 <style>
-[data-testid="stAppViewContainer"] {
-    background-color: #F4F6F9;
-}
 [data-testid="stMetricValue"] {
     font-size: 26px;
     font-weight: bold;
-    color: #6C63FF;
 }
+.kpi1 {color:#FF4B4B;}
+.kpi2 {color:#1F77B4;}
+.kpi3 {color:#2CA02C;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🛒 Customer Purchase Pattern & Basket Analysis System")
+st.title("🛒 Retail Analytics Dashboard")
 
-# ---------------- LOAD DATA ----------------
-with open("rfm.pkl", "rb") as f:
-    rfm = pickle.load(f)
+# ---------------- LOAD FILES ----------------
+rfm = pickle.load(open("rfm.pkl","rb"))
+rules = pickle.load(open("rules.pkl","rb"))
 
-with open("rules.pkl", "rb") as f:
-    rules = pickle.load(f)
-
-# Optional sales dataset
-try:
-    df = pd.read_pickle("retail.pkl")
-except:
-    df = None
-
-# ---------------- SAFE RFM PREPARATION ----------------
 rfm = rfm.copy()
 
-# If CustomerID is index → convert to column
+# Fix index issue
 if rfm.index.name == "CustomerID":
     rfm = rfm.reset_index()
 
-# Ensure required columns exist
-required_cols = ["Recency", "Frequency", "Monetary"]
-for col in required_cols:
-    if col not in rfm.columns:
-        st.error(f"Missing column in RFM data: {col}")
-        st.stop()
-
-# ---------------- CREATE SEGMENTS DYNAMICALLY ----------------
+# ---------------- CREATE SEGMENTS ----------------
 rfm['R_Score'] = pd.qcut(rfm['Recency'], 4, labels=[4,3,2,1], duplicates='drop')
 rfm['F_Score'] = pd.qcut(rfm['Frequency'].rank(method='first'), 4, labels=[1,2,3,4], duplicates='drop')
 rfm['M_Score'] = pd.qcut(rfm['Monetary'], 4, labels=[1,2,3,4], duplicates='drop')
@@ -65,141 +44,111 @@ rfm['RFM_Score'] = (
     rfm['M_Score'].astype(str)
 )
 
-def segment_customer(score):
-    if score >= "444":
+def segment(x):
+    if x >= "444":
         return "Champions"
-    elif score >= "344":
-        return "Loyal Customers"
-    elif score >= "244":
-        return "Potential Loyalists"
+    elif x >= "344":
+        return "Loyal"
+    elif x >= "244":
+        return "Potential"
     else:
         return "At Risk"
 
-rfm['Segment'] = rfm['RFM_Score'].apply(segment_customer)
+rfm["Segment"] = rfm["RFM_Score"].apply(segment)
 
 # ---------------- SIDEBAR ----------------
-st.sidebar.title("📌 Navigation")
+menu = st.sidebar.radio("Select Section",
+                        ["Customer Purchase Analysis",
+                         "Market Basket Analysis"])
 
-menu = st.sidebar.radio("Go to",
-                        ["📊 Dashboard",
-                         "👥 Segmentation",
-                         "🔍 Customer Lookup",
-                         "📈 Sales Trend",
-                         "💰 Profit Prediction",
-                         "🎯 Recommendation"])
+# ============================================================
+# 1️⃣ CUSTOMER PURCHASE ANALYSIS
+# ============================================================
+if menu == "Customer Purchase Analysis":
 
-st.sidebar.markdown("## 📘 Project Description")
-st.sidebar.info("""
-• RFM Customer Segmentation  
-• Market Basket Analysis (Apriori)  
-• Association Rule Mining  
-• Product Recommendation Engine  
-• Sales Trend Analytics  
-• Machine Learning Profit Prediction  
+    st.header("📊 Customer Purchase Analysis")
 
-Built using Python & Streamlit
-""")
-
-# ---------------- DASHBOARD ----------------
-if menu == "📊 Dashboard":
-
+    # ---------------- KPI CARDS ----------------
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("👥 Total Customers", rfm.shape[0])
-    col2.metric("📦 Total Rules", rules.shape[0])
-    col3.metric("💰 Avg Spend", round(rfm["Monetary"].mean(),2))
+    col1.markdown(f"<h3 class='kpi1'>Total Customers</h3>", unsafe_allow_html=True)
+    col1.metric("", rfm.shape[0])
 
+    col2.markdown(f"<h3 class='kpi2'>Average Spend</h3>", unsafe_allow_html=True)
+    col2.metric("", round(rfm["Monetary"].mean(),2))
+
+    col3.markdown(f"<h3 class='kpi3'>High Value Customers</h3>", unsafe_allow_html=True)
+    col3.metric("", rfm[rfm["Segment"]=="Champions"].shape[0])
+
+    # ---------------- PIE CHART ----------------
     st.subheader("Customer Segment Distribution")
 
-    segment_count = rfm["Segment"].value_counts()
+    fig1, ax1 = plt.subplots()
+    rfm["Segment"].value_counts().plot.pie(autopct="%1.1f%%", ax=ax1)
+    st.pyplot(fig1)
 
-    fig, ax = plt.subplots()
-    ax.pie(segment_count, labels=segment_count.index, autopct="%1.1f%%")
-    st.pyplot(fig)
+    # ---------------- SLIDER FILTER ----------------
+    st.subheader("Filter by Minimum Monetary Value")
 
-# ---------------- SEGMENTATION ----------------
-elif menu == "👥 Segmentation":
+    min_value = st.slider("Select Minimum Spend",
+                          int(rfm["Monetary"].min()),
+                          int(rfm["Monetary"].max()),
+                          100)
 
-    st.subheader("Segment Wise Average Spend")
-
-    slider_value = st.slider("Minimum Monetary Value",
-                             int(rfm["Monetary"].min()),
-                             int(rfm["Monetary"].max()),
-                             100)
-
-    filtered = rfm[rfm["Monetary"] >= slider_value]
+    filtered = rfm[rfm["Monetary"] >= min_value]
     st.dataframe(filtered.head(20))
+
+    # ---------------- BAR CHART ----------------
+    st.subheader("Segment Wise Average Spend")
 
     seg_avg = rfm.groupby("Segment")["Monetary"].mean()
     st.bar_chart(seg_avg)
 
-# ---------------- CUSTOMER LOOKUP ----------------
-elif menu == "🔍 Customer Lookup":
+# ============================================================
+# 2️⃣ MARKET BASKET ANALYSIS
+# ============================================================
+elif menu == "Market Basket Analysis":
 
-    st.subheader("Search Customer by ID")
+    st.header("🛍 Market Basket Analysis")
 
-    if "CustomerID" in rfm.columns:
-        customer_id = st.text_input("Enter Customer ID")
+    # ---------------- SLIDERS ----------------
+    min_support = st.slider("Minimum Support", 0.01, 0.5, 0.02)
+    min_conf = st.slider("Minimum Confidence", 0.1, 1.0, 0.3)
+    min_lift = st.slider("Minimum Lift", 0.5, 5.0, 1.0)
 
-        if customer_id:
-            cust = rfm[rfm["CustomerID"].astype(str) == customer_id]
+    filtered_rules = rules[
+        (rules["support"] >= min_support) &
+        (rules["confidence"] >= min_conf) &
+        (rules["lift"] >= min_lift)
+    ]
 
-            if not cust.empty:
-                col1, col2, col3 = st.columns(3)
+    st.subheader("All Association Rules")
+    st.dataframe(filtered_rules[[
+        "antecedents","consequents",
+        "support","confidence","lift"
+    ]])
 
-                col1.metric("Recency", int(cust["Recency"].values[0]))
-                col2.metric("Frequency", int(cust["Frequency"].values[0]))
-                col3.metric("Monetary", round(cust["Monetary"].values[0],2))
+    # ---------------- VISUALIZATION ----------------
+    st.subheader("Support vs Confidence Chart")
 
-                st.success(f"Segment: {cust['Segment'].values[0]}")
-            else:
-                st.error("Customer not found")
-    else:
-        st.warning("CustomerID column not available in dataset.")
+    fig2, ax2 = plt.subplots()
+    ax2.scatter(filtered_rules["support"],
+                filtered_rules["confidence"])
+    ax2.set_xlabel("Support")
+    ax2.set_ylabel("Confidence")
+    st.pyplot(fig2)
 
-# ---------------- SALES TREND ----------------
-elif menu == "📈 Sales Trend":
+    # ---------------- RECOMMENDATION ----------------
+    st.subheader("🎯 Product Recommendation")
 
-    if df is not None:
-        st.subheader("Monthly Sales Trend")
+    products = list(set(
+        item for sublist in rules["antecedents"]
+        for item in sublist
+    ))
 
-        df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
-        df['Month'] = df['InvoiceDate'].dt.to_period('M')
+    selected = st.selectbox("Select Product", products)
 
-        monthly_sales = df.groupby('Month')['TotalPrice'].sum()
-        monthly_sales.index = monthly_sales.index.astype(str)
-
-        st.line_chart(monthly_sales)
-    else:
-        st.warning("Sales dataset not found (retail.pkl missing)")
-
-# ---------------- PROFIT PREDICTION ----------------
-elif menu == "💰 Profit Prediction":
-
-    st.subheader("Profit Prediction Model")
-
-    X = rfm[['Recency','Frequency']]
-    y = rfm['Monetary']
-
-    model = LinearRegression()
-    model.fit(X, y)
-
-    rec = st.slider("Recency", 1, 365, 30)
-    freq = st.slider("Frequency", 1, 100, 5)
-
-    prediction = model.predict([[rec, freq]])
-
-    st.success(f"Predicted Customer Profit: ₹ {round(prediction[0],2)}")
-
-# ---------------- RECOMMENDATION ----------------
-elif menu == "🎯 Recommendation":
-
-    st.subheader("Product Recommendation Engine")
-
-    products = list(set([item for sublist in rules['antecedents'] for item in sublist]))
-    selected = st.selectbox("Select a Product", products)
-
-    rec = rules[rules['antecedents'].apply(lambda x: selected in x)]
+    rec = rules[rules["antecedents"].apply(lambda x: selected in x)]
 
     if not rec.empty:
 
@@ -207,11 +156,22 @@ elif menu == "🎯 Recommendation":
 
         col1, col2, col3 = st.columns(3)
 
-        col1.metric("Support", round(best["support"],3))
-        col2.metric("Confidence", round(best["confidence"],3))
-        col3.metric("Lift", round(best["lift"],3))
+        col1.markdown("<h4 style='color:#FF4B4B'>Support</h4>", unsafe_allow_html=True)
+        col1.metric("", round(best["support"],3))
+
+        col2.markdown("<h4 style='color:#1F77B4'>Confidence</h4>", unsafe_allow_html=True)
+        col2.metric("", round(best["confidence"],3))
+
+        col3.markdown("<h4 style='color:#2CA02C'>Lift</h4>", unsafe_allow_html=True)
+        col3.metric("", round(best["lift"],3))
 
         st.success(f"Recommended Product: {list(best['consequents'])}")
+
+        # Lift Visualization
+        fig3, ax3 = plt.subplots()
+        ax3.bar(["Support","Confidence","Lift"],
+                [best["support"], best["confidence"], best["lift"]])
+        st.pyplot(fig3)
 
     else:
         st.warning("No strong recommendation found.")
